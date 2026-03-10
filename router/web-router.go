@@ -13,6 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func isLikelyMissingV1ProxyRoute(path string) bool {
+	if path == "/responses" || path == "/responses/compact" ||
+		path == "/chat/completions" || path == "/completions" ||
+		path == "/embeddings" || path == "/messages" ||
+		path == "/moderations" || path == "/rerank" {
+		return true
+	}
+	return strings.HasPrefix(path, "/audio/") || strings.HasPrefix(path, "/images/") || path == "/models"
+}
+
 func SetWebRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.Use(middleware.GlobalWebRateLimit())
@@ -20,7 +30,13 @@ func SetWebRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
 	router.Use(static.Serve("/", common.EmbedFolder(buildFS, "web/dist")))
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
-		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/v1") || strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/assets") {
+			controller.RelayNotFound(c)
+			return
+		}
+		if isLikelyMissingV1ProxyRoute(path) {
+			common.SysLog("proxy request hit web router, likely missing /v1 prefix: method=" + c.Request.Method + " path=" + path + " remote=" + c.ClientIP())
 			controller.RelayNotFound(c)
 			return
 		}

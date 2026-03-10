@@ -258,7 +258,20 @@ type ToolCallRequest struct {
 	ID       string          `json:"id,omitempty"`
 	Type     string          `json:"type"`
 	Function FunctionRequest `json:"function,omitempty"`
-	Custom   json.RawMessage `json:"custom,omitempty"`
+	// Custom holds the original JSON for non-function tools (e.g. web_search_preview,
+	// file_search). When set, MarshalJSON emits the raw JSON directly so that the
+	// original tool structure is preserved for upstream providers.
+	Custom json.RawMessage `json:"-"`
+}
+
+// MarshalJSON implements json.Marshaler. When Custom is set the raw JSON is
+// emitted verbatim; otherwise the struct fields are marshaled normally.
+func (t ToolCallRequest) MarshalJSON() ([]byte, error) {
+	if len(t.Custom) > 0 {
+		return t.Custom, nil
+	}
+	type Alias ToolCallRequest
+	return json.Marshal((Alias)(t))
 }
 
 type FunctionRequest struct {

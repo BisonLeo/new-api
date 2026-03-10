@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -71,6 +72,12 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	adaptor.Init(info)
 	var requestBody io.Reader
+	// convertedViaChatCompletions tracks whether the adaptor converted the
+	// responses request into a chat completions request. When true we must
+	// convert the upstream chat response back to responses format ourselves
+	// instead of relying on the adaptor's DoResponse (which expects native
+	// responses-format payloads).
+	var convertedViaChatCompletions bool
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
@@ -83,6 +90,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+
+		// Detect whether the adaptor converted to chat completions format
+		if convFormat, ok := relaycommon.GuessRelayFormatFromRequest(convertedRequest); ok &&
+			convFormat != types.RelayFormatOpenAIResponses &&
+			convFormat != types.RelayFormatOpenAIResponsesCompaction {
+			convertedViaChatCompletions = true
+		}
+
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -118,6 +133,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 
 	if resp != nil {
 		httpResp = resp.(*http.Response)
+		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
@@ -127,7 +143,19 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
+	var usage any
+	// When the adaptor converted to chat completions, the upstream response
+	// is in chat format. Use the generic chat→responses converter instead of
+	// the adaptor's DoResponse which expects native responses payloads.
+	if convertedViaChatCompletions {
+		if info.IsStream {
+			usage, newAPIError = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp)
+		} else {
+			usage, newAPIError = openaichannel.OaiChatToResponsesHandler(c, info, httpResp)
+		}
+	} else {
+		usage, newAPIError = adaptor.DoResponse(c, httpResp, info)
+	}
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
