@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -109,13 +110,50 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 	}
 
-	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
-		!info.ChannelSetting.PassThroughBodyEnabled &&
-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
+	globalPassThroughEnabled := model_setting.GetGlobalSettings().PassThroughRequestEnabled
+	channelPassThroughEnabled := info.ChannelSetting.PassThroughBodyEnabled
+	policyModelName := info.UpstreamModelName
+	if policyModelName == "" {
+		policyModelName = info.OriginModelName
+	}
+	responseOnlyModel := common.IsOpenAIResponseOnlyModel(policyModelName)
+	policyCompat := service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, policyModelName)
+	shouldUseResponsesCompat := responseOnlyModel || policyCompat
+	logger.LogInfo(c, fmt.Sprintf(
+		"claude relay decision: channel_id=%d channel_type=%d api_type=%d relay_format=%s relay_mode=%d request_path=%s origin_model=%s upstream_model=%s policy_model=%s beta_query=%t global_passthrough=%t channel_passthrough=%t response_only_model=%t policy_compat=%t responses_compat=%t",
+		info.ChannelId,
+		info.ChannelType,
+		info.ApiType,
+		info.RelayFormat,
+		info.RelayMode,
+		info.RequestURLPath,
+		info.OriginModelName,
+		info.UpstreamModelName,
+		policyModelName,
+		info.IsClaudeBetaQuery,
+		globalPassThroughEnabled,
+		channelPassThroughEnabled,
+		responseOnlyModel,
+		policyCompat,
+		shouldUseResponsesCompat,
+	))
+
+	if !globalPassThroughEnabled &&
+		!channelPassThroughEnabled &&
+		shouldUseResponsesCompat {
 		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
 		if convErr != nil {
 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+		logger.LogInfo(c, fmt.Sprintf(
+			"claude relay using chat->responses compat: channel_id=%d channel_type=%d origin_model=%s upstream_model=%s converted_model=%s stream=%t",
+			info.ChannelId,
+			info.ChannelType,
+			info.OriginModelName,
+			info.UpstreamModelName,
+			openAIRequest.Model,
+			openAIRequest.IsStream(c),
+		))
 
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, openAIRequest)
 		if newApiErr != nil {
@@ -139,6 +177,16 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+		logger.LogInfo(c, fmt.Sprintf(
+			"claude relay using direct adaptor request: channel_id=%d channel_type=%d origin_model=%s upstream_model=%s converted_request_type=%T conversion_chain=%v final_request_format=%s",
+			info.ChannelId,
+			info.ChannelType,
+			info.OriginModelName,
+			info.UpstreamModelName,
+			convertedRequest,
+			info.RequestConversionChain,
+			info.GetFinalRequestRelayFormat(),
+		))
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

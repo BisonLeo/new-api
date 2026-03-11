@@ -2,12 +2,14 @@ package relay
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -108,6 +110,17 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	info.RelayMode = relayconstant.RelayModeResponses
 	info.RequestURLPath = "/v1/responses"
 
+	logger.LogInfo(c, fmt.Sprintf(
+		"chat->responses compat preparing upstream request: channel_id=%d channel_type=%d adaptor=%s origin_model=%s upstream_model=%s responses_model=%s conversion_chain=%v",
+		info.ChannelId,
+		info.ChannelType,
+		adaptor.GetChannelName(),
+		info.OriginModelName,
+		info.UpstreamModelName,
+		responsesReq.Model,
+		info.RequestConversionChain,
+	))
+
 	convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *responsesReq)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -136,6 +149,15 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	httpResp = resp.(*http.Response)
+	logger.LogInfo(c, fmt.Sprintf(
+		"chat->responses compat upstream response: channel_id=%d channel_type=%d status=%d content_type=%s final_request_format=%s conversion_chain=%v",
+		info.ChannelId,
+		info.ChannelType,
+		httpResp.StatusCode,
+		httpResp.Header.Get("Content-Type"),
+		info.GetFinalRequestRelayFormat(),
+		info.RequestConversionChain,
+	))
 	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 	if httpResp.StatusCode != http.StatusOK {
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
