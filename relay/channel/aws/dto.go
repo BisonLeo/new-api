@@ -1,8 +1,10 @@
 package aws
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -30,28 +32,110 @@ type AwsClaudeRequest struct {
 	//Metadata         json.RawMessage     `json:"metadata,omitempty"`
 }
 
+// redactForLog returns a JSON summary of jsonData with verbose content stripped,
+// keeping only metadata fields useful for debugging (betas, model params, etc.).
+func redactForLog(jsonData []byte) string {
+	var m map[string]interface{}
+	if err := common.Unmarshal(jsonData, &m); err != nil {
+		return "<unmarshal error>"
+	}
+	if msgs, ok := m["messages"]; ok {
+		if arr, ok := msgs.([]interface{}); ok {
+			roles := make([]string, 0, len(arr))
+			for _, msg := range arr {
+				if obj, ok := msg.(map[string]interface{}); ok {
+					if role, ok := obj["role"].(string); ok {
+						roles = append(roles, role)
+					}
+				}
+			}
+			m["messages"] = fmt.Sprintf("[%d messages: %s]", len(arr), strings.Join(roles, ","))
+		}
+	}
+	if _, ok := m["system"]; ok {
+		m["system"] = "[redacted]"
+	}
+	if tools, ok := m["tools"]; ok {
+		if arr, ok := tools.([]interface{}); ok {
+			names := make([]string, 0, len(arr))
+			for _, t := range arr {
+				if obj, ok := t.(map[string]interface{}); ok {
+					if name, ok := obj["name"].(string); ok {
+						names = append(names, name)
+					}
+				}
+			}
+			m["tools"] = fmt.Sprintf("[%d tools: %s]", len(arr), strings.Join(names, ","))
+		}
+	}
+	b, _ := common.Marshal(m)
+	return string(b)
+}
+
+// stripBedrockUnsupportedCacheFields recursively removes fields from cache_control
+// that Bedrock doesn't support (e.g. "scope"). Bedrock only accepts {"type":"ephemeral"}.
+func stripBedrockUnsupportedCacheFields(v any) any {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		if cc, ok := val["cache_control"]; ok {
+			if ccMap, ok := cc.(map[string]interface{}); ok {
+				cleaned := map[string]interface{}{}
+				for k, v := range ccMap {
+					if k == "type" {
+						cleaned[k] = v
+					}
+				}
+				val["cache_control"] = cleaned
+			}
+		}
+		for k, child := range val {
+			val[k] = stripBedrockUnsupportedCacheFields(child)
+		}
+		return val
+	case []interface{}:
+		for i, child := range val {
+			val[i] = stripBedrockUnsupportedCacheFields(child)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
 func formatRequest(requestBody io.Reader, requestHeader http.Header) (*AwsClaudeRequest, error) {
-	var awsClaudeRequest AwsClaudeRequest
-	err := common.DecodeJson(requestBody, &awsClaudeRequest)
+	// Read body bytes so we can log them and still decode
+	bodyBytes, err := io.ReadAll(requestBody)
 	if err != nil {
 		return nil, err
 	}
+	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock request body (pre-format): %s", redactForLog(bodyBytes)))
+
+	var awsClaudeRequest AwsClaudeRequest
+	err = common.DecodeJson(bytes.NewReader(bodyBytes), &awsClaudeRequest)
+	if err != nil {
+		return nil, err
+	}
+	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock anthropic_beta from body: %s", string(awsClaudeRequest.AnthropicBeta)))
+
 	awsClaudeRequest.AnthropicVersion = "bedrock-2023-05-31"
 
-	// check header anthropic-beta
-	anthropicBetaValues := requestHeader.Get("anthropic-beta")
-	if len(anthropicBetaValues) > 0 {
-		var tempArray []string
-		tempArray = strings.Split(anthropicBetaValues, ",")
-		if len(tempArray) > 0 {
-			betaJson, err := json.Marshal(tempArray)
-			if err != nil {
-				return nil, err
-			}
-			awsClaudeRequest.AnthropicBeta = betaJson
-		}
+	// Strip Anthropic-API-only fields from cache_control (e.g. "scope") that Bedrock rejects.
+	awsClaudeRequest.System = stripBedrockUnsupportedCacheFields(awsClaudeRequest.System)
+	for i := range awsClaudeRequest.Messages {
+		awsClaudeRequest.Messages[i].Content = stripBedrockUnsupportedCacheFields(awsClaudeRequest.Messages[i].Content)
 	}
-	logger.LogJson(context.Background(), "json", awsClaudeRequest)
+	awsClaudeRequest.Tools = stripBedrockUnsupportedCacheFields(awsClaudeRequest.Tools)
+
+	// anthropic-beta HTTP header is intentionally NOT forwarded to the Bedrock request body.
+	// Client betas (e.g. from Claude Code CLI) are Anthropic-API-specific and are rejected
+	// by Bedrock with "ValidationException: invalid beta flag".
+	// To pass Bedrock-specific betas (e.g. computer-use-2024-10-22), set anthropic_beta
+	// in the channel param override so it arrives via the request body, not the header.
+	anthropicBetaValues := requestHeader.Get("anthropic-beta")
+	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock anthropic-beta header (ignored for Bedrock): %q", anthropicBetaValues))
+
+	finalJson, _ := common.Marshal(awsClaudeRequest)
+	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock final request body: %s", redactForLog(finalJson)))
 	return &awsClaudeRequest, nil
 }
 

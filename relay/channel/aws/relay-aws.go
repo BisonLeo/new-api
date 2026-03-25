@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -107,6 +108,8 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	// init empty request.header
 	requestHeader := http.Header{}
 	a.SetupRequestHeader(c, &requestHeader, info)
+	clientBeta := c.Request.Header.Get("anthropic-beta")
+	logger.LogInfo(c, fmt.Sprintf("aws bedrock: client anthropic-beta=%q IsClaudeBetaQuery=%v", clientBeta, info.IsClaudeBetaQuery))
 	headerOverride, err := channel.ResolveHeaderOverride(info, c)
 	if err != nil {
 		return nil, err

@@ -1,0 +1,5 @@
+{
+  "listen": ":3031",
+  "forward_to": "http://127.0.0.1:3000",
+  "hidden_fields": ["authorization", "text", "api_key", "password", "content", "description", "secret"]
+}
