@@ -21,6 +21,7 @@ services:
       dockerfile: Dockerfile
       args:
         GOPROXY: "https://goproxy.cn,direct"
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
       network: host
 #    image: calciumion/new-api:latest
     container_name: new-api
