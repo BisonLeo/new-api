@@ -10,6 +10,8 @@ RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run b
 
 FROM golang:alpine AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0
+ARG GOPROXY=https://proxy.golang.org,direct
+RUN echo "Using GOPROXY: $GOPROXY"
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -19,7 +21,7 @@ ENV GOEXPERIMENT=greenteagc
 WORKDIR /build
 
 ADD go.mod go.sum ./
-RUN go mod download
+RUN set -x && go mod download
 
 COPY . .
 COPY --from=builder /build/dist ./web/dist
