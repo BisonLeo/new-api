@@ -120,6 +120,63 @@ nano docker-compose.yml
 docker-compose up -d
 ```
 
+#### Building from Source with Docker Compose V2
+
+To build the Docker image from your local source code instead of using prebuilt images:
+
+```bash
+# Simple build from current source
+docker compose up -d --build
+
+# Build with verbose output to see full compilation logs
+BUILDKIT_PROGRESS=plain DOCKER_BUILDKIT=1 docker compose --progress=plain build --no-cache new-api
+
+# Then start the service
+docker compose up -d
+```
+
+**Note:** Use `docker compose` (V2) instead of `docker-compose` (V1). If you have V1, the build command is:
+```bash
+BUILDKIT_PROGRESS=plain docker-compose build --no-cache --build-arg GOPROXY=https://goproxy.io,direct new-api
+```
+
+**Flags explained:**
+- `--build` — Rebuild the image even if it exists
+- `--no-cache` — Force rebuild all layers without using cache
+- `BUILDKIT_PROGRESS=plain` — Show full output from each build step
+- `DOCKER_BUILDKIT=1` — Enable BuildKit for better performance and features
+
+#### Embedding Git Commit Hash in the Build
+
+Pass the current commit hash at build time so the server logs it on startup (`commit: a1b2c3d`):
+
+```bash
+# Docker build
+docker build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t new-api .
+
+# Docker Compose — pass via environment variable
+GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up --build
+```
+
+To wire it permanently into your `docker-compose.yml`:
+
+```yaml
+services:
+  new-api:
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+```
+
+On startup you will see a log line like:
+
+```
+[SYS] 2026/03/26 - 16:35:59 | New API v1.x.x started (commit: a1b2c3d)
+```
+
+When running in development mode (`go run main.go`) without injecting the flag, it defaults to `commit: dev`.
+
 <details>
 <summary><strong>Using Docker Commands</strong></summary>
 
