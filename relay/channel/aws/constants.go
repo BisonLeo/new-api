@@ -141,6 +141,16 @@ var awsRegionCrossModelPrefixMap = map[string]string{
 	"ap": "apac",
 }
 
+// Models that support global cross-region inference (~10% cheaper than geographic cross-region).
+// These use the "global." prefix instead of "us."/"eu."/"apac.".
+var awsModelGlobalCrossRegionSet = map[string]bool{
+	"anthropic.claude-haiku-4-5-20251001-v1:0":  true,
+	"anthropic.claude-sonnet-4-5-20250929-v1:0": true,
+	"anthropic.claude-sonnet-4-6":               true,
+	"anthropic.claude-opus-4-5-20251101-v1:0":   true,
+	"anthropic.claude-opus-4-6-v1":              true,
+}
+
 var ChannelName = "aws"
 
 // 判断是否为Nova模型

@@ -100,10 +100,12 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	awsModelId := getAwsModelID(info.UpstreamModelName)
 
 	awsRegionPrefix := getAwsRegionPrefix(awsCli.Options().Region)
-	canCrossRegion := awsModelCanCrossRegion(awsModelId, awsRegionPrefix)
-	if canCrossRegion {
+	if awsModelGlobalCrossRegionSet[awsModelId] {
+		awsModelId = "global." + awsModelId
+	} else if awsModelCanCrossRegion(awsModelId, awsRegionPrefix) {
 		awsModelId = awsModelCrossRegion(awsModelId, awsRegionPrefix)
 	}
+	logger.LogInfo(c, fmt.Sprintf("aws bedrock: using modelId=%q region=%q", awsModelId, awsCli.Options().Region))
 
 	// init empty request.header
 	requestHeader := http.Header{}
