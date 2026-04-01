@@ -16,14 +16,17 @@ version: '3.4' # For compatibility with older Docker versions
 
 services:
   new-api:
-    build:  
+    build:
       context: .
       dockerfile: Dockerfile
       args:
         GOPROXY: "https://goproxy.cn,direct"
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        HTTP_PROXY: "http://host.docker.internal:7890"
+        HTTPS_PROXY: "http://host.docker.internal:7890"
+        NO_PROXY: "localhost,127.0.0.1"
       network: host
-#    image: calciumion/new-api:latest
+    image: new-api:latest
     container_name: new-api
     restart: always
     command: --log-dir /app/logs
