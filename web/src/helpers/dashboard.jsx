@@ -54,7 +54,9 @@ export const getInitialTimestamp = () => {
 
   switch (defaultTime) {
     case 'hour':
-      return timestamp2string(now - 86400);
+      return timestamp2string(now - 86400 * 2);
+    case 'day':
+      return timestamp2string(now - 86400 * 31);
     case 'week':
       return timestamp2string(now - 86400 * 30);
     default:

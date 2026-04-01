@@ -343,6 +343,7 @@ export const useDashboardCharts = (
         });
 
         const timeSum = timeData.reduce((sum, item) => sum + item.rawQuota, 0);
+        timeData = timeData.filter((item) => item.rawQuota > 0);
         timeData.sort((a, b) => b.rawQuota - a.rawQuota);
         timeData = timeData.map((item) => ({ ...item, TimeSum: timeSum }));
         newLineData.push(...timeData);
