@@ -118,9 +118,10 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	responseOnlyModel := common.IsOpenAIResponseOnlyModel(policyModelName)
 	policyCompat := service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, policyModelName)
-	shouldUseResponsesCompat := responseOnlyModel || policyCompat
+	codexChannel := info.ChannelType == constant.ChannelTypeCodex
+	shouldUseResponsesCompat := responseOnlyModel || policyCompat || codexChannel
 	logger.LogInfo(c, fmt.Sprintf(
-		"claude relay decision: channel_id=%d channel_type=%d api_type=%d relay_format=%s relay_mode=%d request_path=%s origin_model=%s upstream_model=%s policy_model=%s beta_query=%t global_passthrough=%t channel_passthrough=%t response_only_model=%t policy_compat=%t responses_compat=%t",
+		"claude relay decision: channel_id=%d channel_type=%d api_type=%d relay_format=%s relay_mode=%d request_path=%s origin_model=%s upstream_model=%s policy_model=%s beta_query=%t global_passthrough=%t channel_passthrough=%t response_only_model=%t policy_compat=%t codex_channel=%t responses_compat=%t",
 		info.ChannelId,
 		info.ChannelType,
 		info.ApiType,
@@ -135,6 +136,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		channelPassThroughEnabled,
 		responseOnlyModel,
 		policyCompat,
+		codexChannel,
 		shouldUseResponsesCompat,
 	))
 
