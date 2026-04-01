@@ -109,7 +109,6 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	finalRequestFormat := info.GetFinalRequestRelayFormat()
 	if info.RelayMode == relayconstant.RelayModeRealtime {
 		if strings.HasPrefix(info.ChannelBaseUrl, "https://") {
 			baseUrl := strings.TrimPrefix(info.ChannelBaseUrl, "https://")
@@ -138,8 +137,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		}
 
 		// 特殊处理 responses API
-		if info.RelayMode == relayconstant.RelayModeResponses &&
-			finalRequestFormat == types.RelayFormatOpenAIResponses {
+		if info.RelayMode == relayconstant.RelayModeResponses {
 			responsesApiVersion := "preview"
 
 			subUrl := "/openai/v1/responses"
@@ -174,10 +172,6 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		url = strings.Replace(url, "{model}", info.UpstreamModelName, -1)
 		return url, nil
 	default:
-		if info.RelayMode == relayconstant.RelayModeResponses &&
-			finalRequestFormat == types.RelayFormatOpenAI {
-			return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
-		}
 		if (info.RelayFormat == types.RelayFormatClaude || info.RelayFormat == types.RelayFormatGemini) &&
 			info.RelayMode != relayconstant.RelayModeResponses &&
 			info.RelayMode != relayconstant.RelayModeResponsesCompact {
@@ -231,8 +225,12 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		}
 	}
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
-		header.Set("HTTP-Referer", "https://www.newapi.ai")
-		header.Set("X-Title", "New API")
+		if header.Get("HTTP-Referer") == "" {
+			header.Set("HTTP-Referer", "https://www.newapi.ai")
+		}
+		if header.Get("X-OpenRouter-Title") == "" {
+			header.Set("X-OpenRouter-Title", "New API")
+		}
 	}
 	return nil
 }
@@ -614,7 +612,6 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	finalRequestFormat := info.GetFinalRequestRelayFormat()
 	switch info.RelayMode {
 	case relayconstant.RelayModeRealtime:
 		err, usage = OpenaiRealtimeHandler(c, info)
@@ -629,13 +626,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	case relayconstant.RelayModeRerank:
 		usage, err = common_handler.RerankHandler(c, info, resp)
 	case relayconstant.RelayModeResponses:
-		if finalRequestFormat == types.RelayFormatOpenAI {
-			if info.IsStream {
-				usage, err = OaiChatToResponsesStreamHandler(c, info, resp)
-			} else {
-				usage, err = OaiChatToResponsesHandler(c, info, resp)
-			}
-		} else if info.IsStream {
+		if info.IsStream {
 			usage, err = OaiResponsesStreamHandler(c, info, resp)
 		} else {
 			usage, err = OaiResponsesHandler(c, info, resp)

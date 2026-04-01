@@ -292,20 +292,6 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
-	if info != nil {
-		logger.LogInfo(c, fmt.Sprintf(
-			"upstream api request: adaptor=%s method=%s url=%s relay_format=%s relay_mode=%d final_request_format=%s conversion_chain=%v origin_model=%s upstream_model=%s",
-			a.GetChannelName(),
-			c.Request.Method,
-			fullRequestURL,
-			info.RelayFormat,
-			info.RelayMode,
-			info.GetFinalRequestRelayFormat(),
-			info.RequestConversionChain,
-			info.OriginModelName,
-			info.UpstreamModelName,
-		))
-	}
 	if common2.DebugEnabled {
 		println("fullRequestURL:", fullRequestURL)
 	}
@@ -336,20 +322,6 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
-	}
-	if info != nil {
-		logger.LogInfo(c, fmt.Sprintf(
-			"upstream form request: adaptor=%s method=%s url=%s relay_format=%s relay_mode=%d final_request_format=%s conversion_chain=%v origin_model=%s upstream_model=%s",
-			a.GetChannelName(),
-			c.Request.Method,
-			fullRequestURL,
-			info.RelayFormat,
-			info.RelayMode,
-			info.GetFinalRequestRelayFormat(),
-			info.RequestConversionChain,
-			info.OriginModelName,
-			info.UpstreamModelName,
-		))
 	}
 	if common2.DebugEnabled {
 		println("fullRequestURL:", fullRequestURL)

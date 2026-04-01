@@ -241,21 +241,17 @@ export function timestamp2string1(
   if (dataExportDefaultTime === 'hour') {
     str += ' ' + hour + ':00';
   } else if (dataExportDefaultTime === 'week') {
-    const weekSeconds = 7 * 24 * 60 * 60;
-    const weekStartTs = timestamp - (timestamp % weekSeconds);
-    const weekStartDate = new Date(weekStartTs * 1000);
-    const wsYear = weekStartDate.getFullYear();
-    let wsMonth = (weekStartDate.getMonth() + 1).toString();
-    let wsDay = weekStartDate.getDate().toString();
-    if (wsMonth.length === 1) wsMonth = '0' + wsMonth;
-    if (wsDay.length === 1) wsDay = '0' + wsDay;
-    str = showYear ? wsYear + '-' + wsMonth + '-' + wsDay : wsMonth + '-' + wsDay;
-    let nextWeek = new Date((weekStartTs + 6 * 24 * 60 * 60) * 1000);
+    let nextWeek = new Date(timestamp * 1000 + 6 * 24 * 60 * 60 * 1000);
     let nextWeekYear = nextWeek.getFullYear();
     let nextMonth = (nextWeek.getMonth() + 1).toString();
     let nextDay = nextWeek.getDate().toString();
-    if (nextMonth.length === 1) nextMonth = '0' + nextMonth;
-    if (nextDay.length === 1) nextDay = '0' + nextDay;
+    if (nextMonth.length === 1) {
+      nextMonth = '0' + nextMonth;
+    }
+    if (nextDay.length === 1) {
+      nextDay = '0' + nextDay;
+    }
+    // 周视图结束日期也仅在跨年时显示年份
     let nextStr = showYear
       ? nextWeekYear + '-' + nextMonth + '-' + nextDay
       : nextMonth + '-' + nextDay;

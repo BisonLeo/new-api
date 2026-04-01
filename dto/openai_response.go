@@ -220,10 +220,12 @@ type CompletionsStreamResponse struct {
 }
 
 type Usage struct {
-	PromptTokens         int `json:"prompt_tokens"`
-	CompletionTokens     int `json:"completion_tokens"`
-	TotalTokens          int `json:"total_tokens"`
-	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptTokens         int    `json:"prompt_tokens"`
+	CompletionTokens     int    `json:"completion_tokens"`
+	TotalTokens          int    `json:"total_tokens"`
+	PromptCacheHitTokens int    `json:"prompt_cache_hit_tokens,omitempty"`
+	UsageSemantic        string `json:"usage_semantic,omitempty"`
+	UsageSource          string `json:"usage_source,omitempty"`
 
 	PromptTokensDetails    InputTokenDetails  `json:"prompt_tokens_details"`
 	CompletionTokenDetails OutputTokenDetails `json:"completion_tokens_details"`
@@ -251,7 +253,7 @@ type OpenAIVideoResponse struct {
 
 type InputTokenDetails struct {
 	CachedTokens         int `json:"cached_tokens"`
-	CachedCreationTokens int `json:"-"`
+	CachedCreationTokens int `json:"cached_creation_tokens,omitempty"`
 	TextTokens           int `json:"text_tokens"`
 	AudioTokens          int `json:"audio_tokens"`
 	ImageTokens          int `json:"image_tokens"`
@@ -382,11 +384,11 @@ type ResponsesStreamResponse struct {
 	Item       *ResponsesOutput         `json:"item,omitempty"`
 	// - response.function_call_arguments.delta
 	// - response.function_call_arguments.done
-	OutputIndex  *int                    `json:"output_index,omitempty"`
-	ContentIndex *int                    `json:"content_index,omitempty"`
-	SummaryIndex *int                    `json:"summary_index,omitempty"`
-	ItemID       string                  `json:"item_id,omitempty"`
-	Part         *ResponsesOutputContent `json:"part,omitempty"`
+	OutputIndex  *int        `json:"output_index,omitempty"`
+	ContentIndex *int        `json:"content_index,omitempty"`
+	SummaryIndex *int        `json:"summary_index,omitempty"`
+	ItemID       string      `json:"item_id,omitempty"`
+	Part         interface{} `json:"part,omitempty"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构

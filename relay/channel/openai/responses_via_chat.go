@@ -98,15 +98,16 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return true
 	}
 
-	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if streamErr != nil {
-			return false
+			sr.Stop(streamErr)
+			return
 		}
 
 		var chunk dto.ChatCompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
 			logger.LogError(c, "failed to unmarshal chat stream chunk: "+err.Error())
-			return true
+			return
 		}
 
 		// Update model from upstream
@@ -119,7 +120,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			if usageFromChunk := state.HandleUsageChunk(&chunk); usageFromChunk != nil {
 				usage = usageFromChunk
 			}
-			return true
+			return
 		}
 
 		// Extract usage from final chunk if present
@@ -131,8 +132,6 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if len(events) > 0 {
 			emitEvents(events)
 		}
-
-		return true
 	})
 
 	if streamErr != nil {
