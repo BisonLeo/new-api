@@ -6,9 +6,10 @@ ARG NO_PROXY
 ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY}
 
 WORKDIR /build
-COPY web/package.json .
-COPY web/bun.lock .
-RUN bun install
+COPY web/package.json web/bun.lock ./
+RUN --mount=type=cache,target=/tmp/bun-cache \
+    BUN_INSTALL_CACHE_DIR=/tmp/bun-cache bun install
+
 COPY ./web .
 COPY ./VERSION .
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
@@ -16,9 +17,6 @@ RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run b
 FROM golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0
 ENV GOPROXY=https://goproxy.cn,direct
-# Clear proxy — Go module downloads go through GOPROXY, not the host proxy.
-# BuildKit auto-injects HTTP_PROXY/HTTPS_PROXY from build args into all stages,
-# but 127.0.0.1:7890 is unreachable inside the container.
 ENV HTTP_PROXY="" HTTPS_PROXY="" http_proxy="" https_proxy=""
 
 ARG TARGETOS
@@ -28,13 +26,16 @@ ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
 ENV GOEXPERIMENT=greenteagc
 
 WORKDIR /build
-
 ADD go.mod go.sum ./
-RUN go mod download
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 COPY --from=builder /build/dist ./web/dist
-RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)' -X 'github.com/QuantumNous/new-api/common.GitCommit=${GIT_COMMIT}'" -o new-api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)' -X 'github.com/QuantumNous/new-api/common.GitCommit=${GIT_COMMIT}'" -o new-api
 
 FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
 

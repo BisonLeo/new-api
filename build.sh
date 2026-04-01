@@ -1,2 +1,6 @@
 #!/bin/bash
-GIT_COMMIT=$(git rev-parse --short HEAD) BUILDKIT_PROGRESS=plain DOCKER_BUILDKIT=1 docker compose --progress=plain build --no-cache  new-api
+GIT_COMMIT=$(git rev-parse --short HEAD) \
+DOCKER_BUILDKIT=1 \
+docker compose build new-api \
+  --build-arg GIT_COMMIT="$(git rev-parse --short HEAD)" \
+  --progress=plain
