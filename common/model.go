@@ -8,6 +8,7 @@ var (
 		"o3-pro",
 		"o3-deep-research",
 		"o4-mini-deep-research",
+		"codex",
 	}
 	ImageGenerationModels = []string{
 		"dall-e-3",
