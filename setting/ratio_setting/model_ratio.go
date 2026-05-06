@@ -142,6 +142,7 @@ var defaultModelRatio = map[string]float64{
 	"claude-sonnet-4-5-20250929":                1.5,
 	"claude-opus-4-5-20251101":                  2.5,
 	"claude-opus-4-6":                           2.5,
+	"claude-opus-4-7":                           2.5,
 	"claude-opus-4-6-max":                       2.5,
 	"claude-opus-4-6-high":                      2.5,
 	"claude-opus-4-6-medium":                    2.5,
