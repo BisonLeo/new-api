@@ -73,10 +73,11 @@ func redactForLog(jsonData []byte) string {
 }
 
 // bedrockCacheControlAllowedFields is the set of cache_control sub-fields that
-// Bedrock accepts on Anthropic Claude models. "scope" is Anthropic-API-only and
-// must be stripped. "ttl" was unsupported in early Bedrock revisions but has
-// been honored since the extended-cache-ttl-2025-04-11 beta rolled out — keep
-// it so callers can request 1h TTL caches.
+// AWS Bedrock accepts on Anthropic Claude models. "scope" is Anthropic-API-only
+// and must be stripped. "ttl" is honored natively by Bedrock on supported
+// models (Sonnet 4.5, Haiku 4.5, Opus 4.5+) — no anthropic_beta flag is
+// required, only the cache_control field itself. See AWS docs:
+// https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
 var bedrockCacheControlAllowedFields = map[string]struct{}{
 	"type": {},
 	"ttl":  {},
@@ -112,117 +113,6 @@ func stripBedrockUnsupportedCacheFields(v any) any {
 	}
 }
 
-// bedrockAllowedBetas is the set of Anthropic beta flags that AWS Bedrock
-// honors when supplied in the request body's `anthropic_beta` array. Any beta
-// not in this set must be filtered out — Bedrock rejects unknown betas with
-// "ValidationException: invalid beta flag". Update conservatively as AWS adds
-// support for additional betas.
-var bedrockAllowedBetas = map[string]struct{}{
-	bedrockExtendedCacheTTLBeta:        {},
-	"computer-use-2024-10-22":          {},
-	"computer-use-2025-01-24":          {},
-	"pdfs-2024-09-25":                  {},
-	"interleaved-thinking-2025-05-14":  {},
-	"output-128k-2025-02-19":           {},
-	"fine-grained-tool-streaming-2025-05-14": {},
-}
-
-// bedrockExtendedCacheTTLBeta is the Bedrock-side opt-in for 1-hour prompt
-// caches. It is auto-injected into the body when any cache_control block in
-// the request specifies `ttl: "1h"`, so callers don't have to know the
-// Bedrock-specific beta name (clients like Claude Code use the Anthropic-API
-// beta `prompt-caching-scope-2026-01-05` instead, which Bedrock doesn't
-// recognize).
-const bedrockExtendedCacheTTLBeta = "extended-cache-ttl-2025-04-11"
-
-// hasCacheControlWithTTL1h returns true if any cache_control block reachable
-// from v specifies `ttl: "1h"`. Used to decide whether the Bedrock request
-// must opt into the extended-cache-ttl beta.
-func hasCacheControlWithTTL1h(v any) bool {
-	switch val := v.(type) {
-	case map[string]interface{}:
-		if cc, ok := val["cache_control"]; ok {
-			if ccMap, ok := cc.(map[string]interface{}); ok {
-				if ttl, ok := ccMap["ttl"].(string); ok && ttl == "1h" {
-					return true
-				}
-			}
-		}
-		for _, child := range val {
-			if hasCacheControlWithTTL1h(child) {
-				return true
-			}
-		}
-	case []interface{}:
-		for _, child := range val {
-			if hasCacheControlWithTTL1h(child) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// applyBedrockBetas populates req.AnthropicBeta with the union of:
-//  1. Bedrock-supported betas already present in the request body
-//     (preserved in order, deduped).
-//  2. Bedrock-supported betas from the inbound anthropic-beta HTTP header.
-//     Anthropic-API-only betas (e.g. claude-code-20250219, advisor-tool-*,
-//     prompt-caching-scope-*) are silently dropped.
-//  3. The extended-cache-ttl-2025-04-11 beta when any cache_control in the
-//     body specifies ttl="1h" — auto-opt-in so callers don't have to know
-//     the Bedrock-specific beta name.
-//
-// If the resulting set is empty, req.AnthropicBeta is cleared so the field
-// is omitted (omitempty).
-func applyBedrockBetas(req *AwsClaudeRequest, headerValues []string, needs1hTTL bool) {
-	seen := map[string]struct{}{}
-	var out []string
-	add := func(b string) {
-		b = strings.TrimSpace(b)
-		if b == "" {
-			return
-		}
-		if _, ok := bedrockAllowedBetas[b]; !ok {
-			return
-		}
-		if _, ok := seen[b]; ok {
-			return
-		}
-		seen[b] = struct{}{}
-		out = append(out, b)
-	}
-
-	// Existing betas in body (caller-supplied via channel param override etc.)
-	if len(req.AnthropicBeta) > 0 {
-		var existing []string
-		if err := json.Unmarshal(req.AnthropicBeta, &existing); err == nil {
-			for _, b := range existing {
-				add(b)
-			}
-		}
-	}
-
-	// Promote from header.
-	for _, hv := range headerValues {
-		for _, raw := range strings.Split(hv, ",") {
-			add(raw)
-		}
-	}
-
-	// Auto-inject for 1h TTL.
-	if needs1hTTL {
-		add(bedrockExtendedCacheTTLBeta)
-	}
-
-	if len(out) == 0 {
-		req.AnthropicBeta = nil
-		return
-	}
-	if merged, err := json.Marshal(out); err == nil {
-		req.AnthropicBeta = merged
-	}
-}
 
 func formatRequest(requestBody io.Reader, requestHeader http.Header) (*AwsClaudeRequest, error) {
 	// Read body bytes so we can log them and still decode
@@ -241,38 +131,26 @@ func formatRequest(requestBody io.Reader, requestHeader http.Header) (*AwsClaude
 
 	awsClaudeRequest.AnthropicVersion = "bedrock-2023-05-31"
 
-	// Detect whether the body asks for 1h cache TTL before we strip
-	// unsupported sub-fields — answering after the strip would be safe too
-	// (ttl is now in the allowlist) but doing it here keeps the two passes
-	// independent.
-	needs1hTTL := hasCacheControlWithTTL1h(awsClaudeRequest.System) ||
-		hasCacheControlWithTTL1h(awsClaudeRequest.Tools)
-	if !needs1hTTL {
-		for _, m := range awsClaudeRequest.Messages {
-			if hasCacheControlWithTTL1h(m.Content) {
-				needs1hTTL = true
-				break
-			}
-		}
-	}
-
-	// Strip Anthropic-API-only fields from cache_control (e.g. "scope") that Bedrock rejects.
+	// Strip Anthropic-API-only sub-fields from cache_control (e.g. "scope")
+	// that Bedrock rejects. The "ttl" sub-field IS preserved — Bedrock honors
+	// `cache_control:{type:"ephemeral", ttl:"1h"}` directly on supported
+	// models (Claude Sonnet 4.5, Haiku 4.5, Opus 4.5+), no beta flag needed.
 	awsClaudeRequest.System = stripBedrockUnsupportedCacheFields(awsClaudeRequest.System)
 	for i := range awsClaudeRequest.Messages {
 		awsClaudeRequest.Messages[i].Content = stripBedrockUnsupportedCacheFields(awsClaudeRequest.Messages[i].Content)
 	}
 	awsClaudeRequest.Tools = stripBedrockUnsupportedCacheFields(awsClaudeRequest.Tools)
 
-	// Promote Bedrock-supported betas from the inbound anthropic-beta HTTP
-	// header into the request body — Bedrock honors betas only when they
-	// appear in the body's anthropic_beta array, never via the HTTP header.
-	// Anthropic-API-only betas (claude-code-*, advisor-tool-*, etc.) are
-	// dropped so they don't trigger "ValidationException: invalid beta flag".
-	// When the body specifies ttl="1h", extended-cache-ttl-2025-04-11 is
-	// auto-injected so the upstream actually buckets creates as 1h.
-	headerValues := requestHeader.Values("anthropic-beta")
-	applyBedrockBetas(&awsClaudeRequest, headerValues, needs1hTTL)
-	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock anthropic-beta (header=%q, needs_1h_ttl=%t, body=%s)", strings.Join(headerValues, ","), needs1hTTL, string(awsClaudeRequest.AnthropicBeta)))
+	// anthropic-beta HTTP header is intentionally NOT forwarded to the Bedrock request body.
+	// Client betas (e.g. from Claude Code CLI: claude-code-*, advisor-tool-*,
+	// interleaved-thinking-*, prompt-caching-scope-*, etc.) are Anthropic-API-specific
+	// and are rejected by Bedrock with "ValidationException: invalid beta flag".
+	// Bedrock's accepted set is small and undocumented; trying to allowlist client
+	// betas tends to ship 400s as Anthropic adds new ones. To pass a known
+	// Bedrock-supported beta (e.g. computer-use-2024-10-22), set anthropic_beta
+	// in the channel param override so it arrives via the request body, not the header.
+	anthropicBetaValues := requestHeader.Get("anthropic-beta")
+	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock anthropic-beta header (ignored for Bedrock): %q", anthropicBetaValues))
 
 	finalJson, _ := common.Marshal(awsClaudeRequest)
 	logger.LogInfo(context.Background(), fmt.Sprintf("aws bedrock final request body: %s", redactForLog(finalJson)))
