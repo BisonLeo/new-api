@@ -1,5 +1,5 @@
 {
   "listen": ":3031",
-  "forward_to": "https://api.anthropic.com",
+  "forward_to": "http://localhost:3000",
   "hidden_fields": ["authorization", "text", "api_key", "password", "content", "description", "secret", "input_schema"]
 }
