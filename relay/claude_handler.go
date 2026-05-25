@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -45,6 +46,22 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+	}
+	// OpenRouter: when the incoming relay is Claude-format, route through the
+	// Anthropic-native endpoint (/v1/messages) instead of the OpenAI-compat
+	// (/v1/chat/completions) path. Reasons:
+	//   1. Preserves cache_control fields end-to-end (incl. ttl:"1h"), which the
+	//      Claude->OpenAI conversion would otherwise drop, defeating prompt caching.
+	//   2. OpenRouter's Anthropic-compatible endpoint provides richer usage
+	//      accounting for Claude models than the OpenAI-compat shim.
+	// OpenRouter's Anthropic endpoint still uses `Authorization: Bearer` auth,
+	// not `x-api-key` — that branch is handled in claude.Adaptor.SetupRequestHeader.
+	if info.ChannelType == constant.ChannelTypeOpenRouter && info.RelayFormat == types.RelayFormatClaude {
+		adaptor = &claude.Adaptor{}
+		logger.LogInfo(c, fmt.Sprintf(
+			"claude relay overriding adaptor for openrouter+claude: channel_id=%d using anthropic-native /v1/messages path",
+			info.ChannelId,
+		))
 	}
 	adaptor.Init(info)
 

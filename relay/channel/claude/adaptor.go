@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -60,7 +61,20 @@ func CommonClaudeHeadersOperation(c *gin.Context, req *http.Header, info *relayc
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	req.Set("x-api-key", info.ApiKey)
+	if info.ChannelType == constant.ChannelTypeOpenRouter {
+		// OpenRouter's Anthropic-compatible endpoint uses OpenRouter's own
+		// Bearer auth, not Anthropic's x-api-key. Also include the standard
+		// OpenRouter attribution headers (matches openai.Adaptor behavior).
+		req.Set("Authorization", "Bearer "+info.ApiKey)
+		if req.Get("HTTP-Referer") == "" {
+			req.Set("HTTP-Referer", "https://www.newapi.ai")
+		}
+		if req.Get("X-OpenRouter-Title") == "" {
+			req.Set("X-OpenRouter-Title", "New API")
+		}
+	} else {
+		req.Set("x-api-key", info.ApiKey)
+	}
 	anthropicVersion := c.Request.Header.Get("anthropic-version")
 	if anthropicVersion == "" {
 		anthropicVersion = "2023-06-01"
