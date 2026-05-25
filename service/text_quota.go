@@ -113,9 +113,17 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
+	// The OpenRouter-Claude legacy billing adjustment compensates for the
+	// OpenAI-compat path, where OpenRouter returns gross OpenAI-shape
+	// prompt_tokens (input + cache_read + cache_creation) plus Claude-style
+	// cache split fields. When OpenRouter is routed through its Anthropic-native
+	// /v1/messages endpoint (FinalRequestRelayFormat == RelayFormatClaude),
+	// input_tokens is already the non-cached portion per Anthropic convention,
+	// and subtracting again produces large negative values.
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
-		summary.IsClaudeUsageSemantic
+		summary.IsClaudeUsageSemantic &&
+		relayInfo.GetFinalRequestRelayFormat() != types.RelayFormatClaude
 
 	if isOpenRouterClaudeBilling {
 		summary.PromptTokens -= summary.CacheTokens
